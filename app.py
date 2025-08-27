@@ -55,22 +55,26 @@ def validate_environment():
             if 'google_credentials' not in st.secrets:
                 issues.append("Google credentials not found in Streamlit secrets")
             
-            # Check sheet key at root level
+            # Check sheet key - it should be directly in secrets, not in google_credentials
             if 'GOOGLE_SHEET_KEY' not in st.secrets:
                 issues.append("GOOGLE_SHEET_KEY not found in Streamlit secrets")
             
-            return issues  # Return early if using Streamlit secrets
+            # If we have secrets, return early (don't check local files)
+            if not issues:
+                return issues  # Return empty list if all good
+            else:
+                return issues  # Return issues found in secrets
+                
     except Exception as e:
         pass  # Fall through to local method
     
-    # Local PC method continues...    
-    # Local PC method
-    credentials_path = "credentials.json"  # Hardcoded since you have this file
+    # Local PC method - only runs if Streamlit secrets not available
+    credentials_path = "credentials.json"
     if not os.path.exists(credentials_path):
         issues.append(f"Google credentials file not found: {credentials_path}")
     
-    # You can hardcode your sheet key here or set it as environment variable
-    sheet_key = "1LUQhz49MVcnhnk3UuLleI_VYMgFNWV1YBVPbHlfdjpc"  # Your sheet key
+    # For local, we hardcode the sheet key
+    sheet_key = "1LUQhz49MVcnhnk3UuLleI_VYMgFNWV1YBVPbHlfdjpc"
     
     return issues
 def validate_data_quality(df):
