@@ -8,3 +8,4 @@ scipy
 scikit-learn
 openpyxl
 xlsxwriter
+python-dotenv
