@@ -1000,3 +1000,1115 @@ try:
         st.metric("Avg Age (Days)", "N/A" if np.isnan(mtbf_days) else f"{mtbf_days:.0f}")
 except Exception as e:
     st.error(f"Metric error: {e}")
+# -----------------------------------
+# Tabs
+# -----------------------------------
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+    ["📊 Overview", "📈 Sample Size Analysis", "🥧 Distribution Analysis", "🔍 Drill-Down", "🔥 Performance Matrix", "📉 Trends", "🧠 Advanced Analytics", "📊 Pareto Analysis"]
+)
+with tab1:
+    st.header("📊 Executive Summary & Key Metrics")
+    if known_results.empty:
+        st.warning("⚠️ No valid PASS/FAIL results found")
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🎯 Key Performance Indicators")
+            kpi_data = {
+                "Metric": [
+                    "Total Tests Conducted",
+                    "Data Completeness",
+                    "Overall Failure Rate",
+                    "High-Risk Categories",
+                    "Sample Size Adequacy"
+                ],
+                "Value": [
+                    f"{total_tests:,}",
+                    f"{(len(known_results)/total_tests*100):.1f}%" if total_tests > 0 else "0%",
+                    f"{failure_rate:.1f}%",
+                    "TBD",
+                    "Adequate" if len(known_results) > 100 else "Limited"
+                ],
+                "Status": [
+                    "🟢" if total_tests > 100 else "🟡" if total_tests > 50 else "🔴",
+                    "🟢" if (len(known_results)/total_tests) > 0.9 else "🟡" if (len(known_results)/total_tests) > 0.7 else "🔴",
+                    "🟢" if failure_rate < 15 else "🟡" if failure_rate < 25 else "🔴",
+                    "🔍",
+                    "🟢" if len(known_results) > 100 else "🟡" if len(known_results) > 50 else "🔴"
+                ]
+            }
+            st.dataframe(pd.DataFrame(kpi_data), use_container_width=True, hide_index=True)
+        with col2:
+            st.subheader("📈 Quick Performance Overview")
+            if "Make" in df.columns:
+                make_perf = known_results.groupby("Make")["Is_Failure"].agg(["count", "mean"]).round(3)
+                make_perf.columns = ["Sample_Size", "Failure_Rate"]
+                make_perf["Failure_Rate_Pct"] = make_perf["Failure_Rate"] * 100
+                make_perf = make_perf.sort_values("Failure_Rate_Pct", ascending=False)
+                fig_quick = px.bar(
+                    make_perf.reset_index(),
+                    x="Make", y="Failure_Rate_Pct",
+                    title="Quick Make Performance Comparison",
+                    color="Failure_Rate_Pct",
+                    color_continuous_scale="RdYlBu_r"
+                )
+                fig_quick.update_layout(xaxis_tickangle=-45, height=400, **default_layout)
+                st.plotly_chart(fig_quick, use_container_width=True)
+        st.subheader("🔍 Interactive Data Explorer")
+        st.data_editor(
+            df, use_container_width=True, hide_index=True,
+            column_config={
+                "Test date time": st.column_config.DatetimeColumn("Test Date Time"),
+                "Age_Numeric": st.column_config.NumberColumn("Age (Days)", format="%.0f"),
+                "Age_Years": st.column_config.NumberColumn("Age (Years)", format="%.1f"),
+                "Is_Failure": st.column_config.CheckboxColumn("Failure"),
+                "Is_Pass": st.column_config.CheckboxColumn("Pass"),
+            },
+            num_rows="dynamic", disabled=True, key=f"data_explorer_{sheet_choice}",
+        )
+with tab2:
+    st.header("📈 Sample Size Analysis")
+    st.markdown("*Comprehensive analysis showing sample sizes, failure counts, and rates*")
+    if failures == 0:
+        st.warning("⚠️ No failure data available for sample size analysis")
+    else:
+        analysis_columns = [("Make", "Manufacturer"), ("TYPE OF DAMPER", "Damper Type")]
+        if "Age_Category" in df.columns:
+            analysis_columns.append(("Age_Category", "Age Category"))
+        for col, title in analysis_columns:
+            if col in df.columns:
+                st.subheader(f"📊 {title} Sample Size Analysis")
+                try:
+                    fig_sample, sample_data = analytics.generate_sample_size_analysis(col)
+                    if fig_sample is not None and not sample_data.empty:
+                        st.plotly_chart(fig_sample, use_container_width=True)
+                        adequate = sample_data[sample_data['Total_Tests'] >= 30]
+                        limited = sample_data[(sample_data['Total_Tests'] >= 10) & (sample_data['Total_Tests'] < 30)]
+                        insufficient = sample_data[sample_data['Total_Tests'] < 10]
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.markdown(f"""
+                            <div class="success-box"><strong>🟢 Adequate Sample Size</strong><br>
+                            {len(adequate)} categories (≥30 tests)<br>
+                            <small>{', '.join(adequate[col].astype(str).tolist()[:3])}{' ...' if len(adequate) > 3 else ''}</small>
+                            </div>""", unsafe_allow_html=True)
+                        with col2:
+                            st.markdown(f"""
+                            <div class="warning-box"><strong>🟡 Limited Sample Size</strong><br>
+                            {len(limited)} categories (10-29 tests)<br>
+                            <small>{', '.join(limited[col].astype(str).tolist()[:3])}{' ...' if len(limited) > 3 else ''}</small>
+                            </div>""", unsafe_allow_html=True)
+                        with col3:
+                            st.markdown(f"""
+                            <div class="error-box"><strong>🔴 Insufficient Sample Size</strong><br>
+                            {len(insufficient)} categories (<10 tests)<br>
+                            <small>{', '.join(insufficient[col].astype(str).tolist()[:3])}{' ...' if len(insufficient) > 3 else ''}</small>
+                            </div>""", unsafe_allow_html=True)
+                        with st.expander(f"📋 Detailed {title} Analysis Data"):
+                            st.dataframe(
+                                sample_data.style.format({'Failure_Rate': '{:.1%}', 'Failure_Rate_Pct': '{:.1f}%'}),
+                                use_container_width=True
+                            )
+                    else:
+                        st.info(f"No data available for {title} sample size analysis")
+                except Exception as e:
+                    st.error(f"Sample size analysis error for {title}: {e}")
+with tab3:
+    st.header("🥧 Distribution Analysis")
+    st.markdown("*Visual distribution analysis using pie charts and summary statistics*")
+    if known_results.empty:
+        st.warning("⚠️ No valid data for distribution analysis")
+    else:
+        dist_columns = [("Make", "Manufacturer"), ("TYPE OF DAMPER", "Damper Type")]
+        if "Age_Category" in df.columns:
+            dist_columns.append(("Age_Category", "Age Category"))
+        for col, title in dist_columns:
+            if col in df.columns:
+                st.subheader(f"📊 {title} Distribution")
+                try:
+                    fig_overall, fig_failure, summary_data = analytics.generate_pie_charts(col)
+                    if fig_overall is not None:
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.plotly_chart(fig_overall, use_container_width=True)
+                        with c2:
+                            if fig_failure is not None:
+                                st.plotly_chart(fig_failure, use_container_width=True)
+                            else:
+                                st.info("No failure data available for failure distribution chart")
+                        if not summary_data.empty:
+                            st.markdown(f"**📈 {title} Performance Summary**")
+                            best_performer = summary_data.loc[summary_data['Failure_Rate_Pct'].idxmin()]
+                            worst_performer = summary_data.loc[summary_data['Failure_Rate_Pct'].idxmax()]
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown(f"""
+                                <div class="success-box">
+                                <strong>🏆 Best Performer</strong><br>
+                                <strong>{best_performer[col]}</strong><br>
+                                Failure Rate: {best_performer['Failure_Rate_Pct']:.1f}%<br>
+                                Sample Size: {best_performer['Total_Tests']}
+                                </div>""", unsafe_allow_html=True)
+                            with c2:
+                                st.markdown(f"""
+                                <div class="error-box">
+                                <strong>⚠️ Needs Attention</strong><br>
+                                <strong>{worst_performer[col]}</strong><br>
+                                Failure Rate: {worst_performer['Failure_Rate_Pct']:.1f}%<br>
+                                Sample Size: {worst_performer['Total_Tests']}
+                                </div>""", unsafe_allow_html=True)
+                            with st.expander(f"📋 Complete {title} Summary"):
+                                st.dataframe(
+                                    summary_data.style.format({'Failure_Rate': '{:.1%}', 'Failure_Rate_Pct': '{:.1f}%'}),
+                                    use_container_width=True
+                                )
+                    else:
+                        st.info(f"No data available for {title} distribution analysis")
+                except Exception as e:
+                    st.error(f"Distribution analysis error for {title}: {e}")
+with tab4:
+    st.header("🔍 Interactive Drill-Down Analysis")
+    st.markdown("*Select specific categories to get detailed insights and comparisons*")
+    if known_results.empty:
+        st.warning("⚠️ No valid data for drill-down analysis")
+    else:
+        # Controls: Make, Age, Type
+        col1, col2, col3 = st.columns(3)
+        selected_make = None
+        selected_age = None
+        selected_type = None
+        with col1:
+            if "Make" in df.columns:
+                make_options = ['All'] + sorted(df["Make"].dropna().unique().tolist())
+                chosen = st.selectbox("🏭 Select Make", make_options)
+                selected_make = None if chosen == 'All' else chosen
+        with col2:
+            if "Age_Category" in df.columns:
+                age_options = ['All'] + sorted(df["Age_Category"].dropna().astype(str).unique().tolist())
+                chosen = st.selectbox("📅 Select Age Category", age_options)
+                selected_age = None if chosen == 'All' else chosen
+        with col3:
+            if "TYPE OF DAMPER" in df.columns:
+                type_options = ['All'] + sorted(df["TYPE OF DAMPER"].dropna().astype(str).unique().tolist())
+                chosen = st.selectbox("⚙️ Select Damper Type", type_options)
+                selected_type = None if chosen == 'All' else chosen
+        # Insights
+        insights = analytics.generate_drill_down_insights(selected_make, selected_age, selected_type)
+        if insights:
+            for insight in insights:
+                box = ("error-box" if insight["type"] == "critical" else
+                       "warning-box" if insight["type"] == "warning" else
+                       "success-box" if insight["type"] == "success" else "insight-box")
+                title = insight.get("title", "Insight")
+                st.markdown(f"""<div class="{box}"><strong>💡 {title}</strong><br>{insight['content']}</div>""",
+                            unsafe_allow_html=True)
+        # Filter the data for charts/tables + downloads
+        filtered_data = known_results.copy()
+        parts = []
+        if selected_make:
+            filtered_data = filtered_data[filtered_data["Make"] == selected_make]
+            parts.append(f"Make: {selected_make}")
+        if selected_age:
+            filtered_data = filtered_data[filtered_data["Age_Category"] == selected_age]
+            parts.append(f"Age: {selected_age}")
+        if selected_type and "TYPE OF DAMPER" in filtered_data.columns:
+            filtered_data = filtered_data[filtered_data["TYPE OF DAMPER"] == selected_type]
+            parts.append(f"Type: {selected_type}")
+        label = "Overall" if not parts else ", ".join(parts)
+        if filtered_data.empty:
+            st.warning("No data available for the selected filters")
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                if "Test date time" in filtered_data.columns and filtered_data["Test date time"].notna().any():
+                    monthly_data = filtered_data.copy()
+                    monthly_data["YearMonth"] = monthly_data["Test date time"].dt.to_period("M")
+                    monthly_summary = (
+                        monthly_data.groupby("YearMonth")["Is_Failure"]
+                        .agg(["count", "sum", "mean"]).reset_index()
+                    )
+                    monthly_summary.columns = ["YearMonth", "Total_Tests", "Failures", "Failure_Rate"]
+                    monthly_summary["Date"] = monthly_summary["YearMonth"].dt.to_timestamp()
+                    monthly_summary["Failure_Rate_Pct"] = monthly_summary["Failure_Rate"] * 100
+                    if len(monthly_summary) > 1:
+                        fig_trend = px.line(monthly_summary, x="Date", y="Failure_Rate_Pct",
+                                            title=f"Trend — {label}", markers=True)
+                        fig_trend.update_layout(**default_layout)
+                        st.plotly_chart(fig_trend, use_container_width=True)
+                    else:
+                        st.info("Insufficient time data for trend analysis")
+            with c2:
+                if "Age_Years" in filtered_data.columns:
+                    fig_age = px.histogram(filtered_data, x="Age_Years", color="Test Result",
+                                           title=f"Age Distribution — {label}", nbins=20)
+                    fig_age.update_layout(**default_layout)
+                    st.plotly_chart(fig_age, use_container_width=True)
+            with st.expander("📊 Detailed Statistics"):
+                stats_data = {
+                    "Metric": ["Sample Size", "Failures", "Passes", "Failure Rate",
+                               "Average Age (Years)", "Age Range (Years)"],
+                    "Value": [
+                        len(filtered_data),
+                        int(filtered_data["Is_Failure"].sum()),
+                        int((filtered_data["Is_Failure"] == 0).sum()),
+                        f"{filtered_data['Is_Failure'].mean():.1%}",
+                        f"{filtered_data['Age_Years'].mean():.1f}" if "Age_Years" in filtered_data.columns else "N/A",
+                        (f"{filtered_data['Age_Years'].min():.1f} - {filtered_data['Age_Years'].max():.1f}"
+                         if "Age_Years" in filtered_data.columns else "N/A")
+                    ]
+                }
+                st.dataframe(pd.DataFrame(stats_data), use_container_width=True, hide_index=True)
+            # ---- Drill-down downloads (CSV + Excel) ----
+            st.markdown("#### 📥 Download This Drill‑Down Dataset")
+            csv_bytes = filtered_data.to_csv(index=False).encode('utf-8-sig') # BOM fixes odd chars in Excel
+            st.download_button(
+                "Download CSV (UTF‑8)", data=csv_bytes,
+                file_name=f"drilldown_{label.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv", use_container_width=True
+            )
+            # Excel
+            xls_buf = BytesIO()
+            with pd.ExcelWriter(xls_buf, engine="xlsxwriter") as writer:
+                filtered_data.to_excel(writer, sheet_name="DrillDown", index=False)
+            st.download_button(
+                "Download Excel (.xlsx)", data=xls_buf.getvalue(),
+                file_name=f"drilldown_{label.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+with tab5:
+    st.header("🔥 Performance Matrix Analysis")
+    st.markdown("*Comprehensive performance analysis by Age vs Make with multiple visualization perspectives*")
+    if known_results.empty or "Make" not in df.columns or "Age_Category" not in df.columns:
+        st.warning("⚠️ Insufficient data or missing required columns (Make, Age_Category) for performance matrix analysis")
+    else:
+        try:
+            charts, perf_matrix = analytics.generate_performance_vs_age_make_analysis()
+            if charts and not perf_matrix.empty:
+                if 'heatmap' in charts:
+                    st.subheader("🔥 Performance Heatmap")
+                    st.plotly_chart(charts['heatmap'], use_container_width=True)
+                    st.markdown("""
+                    <div class="insight-box"><strong>💡 Reading the Heatmap:</strong>
+                    Darker red indicates higher failure rates. Compare patterns across age groups and manufacturers.</div>
+                    """, unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    if 'bubble' in charts:
+                        st.subheader("💫 Performance Bubble Chart")
+                        st.plotly_chart(charts['bubble'], use_container_width=True)
+                with c2:
+                    if 'grouped_bar' in charts:
+                        st.subheader("📊 Grouped Performance Comparison")
+                        st.plotly_chart(charts['grouped_bar'], use_container_width=True)
+                if 'sample_adequacy' in charts:
+                    st.subheader("📏 Sample Size Adequacy Map")
+                    st.plotly_chart(charts['sample_adequacy'], use_container_width=True)
+                    st.markdown("""
+                    <div class="warning-box"><strong>⚠️ Sample Size Guidelines:</strong>
+                    Green (>50 tests) are reliable. Orange (20–50) and Red (<20) need more data.</div>
+                    """, unsafe_allow_html=True)
+                st.subheader("🎯 Key Performance Insights")
+                best_combo = perf_matrix.loc[perf_matrix['Failure_Rate_Pct'].idxmin()]
+                worst_combo = perf_matrix.loc[perf_matrix['Failure_Rate_Pct'].idxmax()]
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown(f"""
+                    <div class="success-box"><strong>🏆 Best Performance</strong><br>
+                    <strong>{best_combo['Make']}</strong><br>Age: {best_combo['Age_Category']}<br>
+                    Failure Rate: {best_combo['Failure_Rate_Pct']:.1f}%<br>
+                    Sample: {best_combo['Sample_Size']} tests</div>""", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"""
+                    <div class="error-box"><strong>⚠️ Needs Attention</strong><br>
+                    <strong>{worst_combo['Make']}</strong><br>Age: {worst_combo['Age_Category']}<br>
+                    Failure Rate: {worst_combo['Failure_Rate_Pct']:.1f}%<br>
+                    Sample: {worst_combo['Sample_Size']} tests</div>""", unsafe_allow_html=True)
+                with c3:
+                    adequate_samples = perf_matrix[perf_matrix['Sample_Size'] >= 30]
+                    if not adequate_samples.empty:
+                        variance = adequate_samples['Failure_Rate_Pct'].var()
+                        st.markdown(f"""
+                        <div class="insight-box"><strong>📊 Statistical Overview</strong><br>
+                        Combos: {len(perf_matrix)} | Adequate samples: {len(adequate_samples)}<br>
+                        Variance across adequate samples: {variance:.1f}</div>""", unsafe_allow_html=True)
+                with st.expander("📋 Complete Performance Matrix"):
+                    display_matrix = perf_matrix.sort_values('Failure_Rate_Pct', ascending=False)
+                    st.dataframe(
+                        display_matrix.style.format({
+                            'Failure_Rate': '{:.1%}', 'Failure_Rate_Pct': '{:.1f}%',
+                            'Avg_Age_Years': '{:.1f}'
+                        }).background_gradient(subset=['Failure_Rate_Pct'], cmap='Reds'),
+                        use_container_width=True
+                    )
+                st.subheader("📋 Strategic Recommendations")
+                age_analysis = perf_matrix.groupby('Age_Category')['Failure_Rate_Pct'].agg(['mean', 'count']).reset_index()
+                age_analysis.columns = ['Age_Category', 'Avg_Failure_Rate', 'Sample_Count']
+                age_analysis = age_analysis.sort_values('Avg_Failure_Rate', ascending=False)
+                if not age_analysis.empty:
+                    highest_risk_age = age_analysis.iloc[0]['Age_Category']
+                    st.markdown(f"""
+                    <div class="drill-down-card"><strong>🎯 Priority Actions:</strong><br>
+                    1. Focus on <strong>{highest_risk_age}</strong> category (highest avg failure)<br>
+                    2. Investigate <strong>{worst_combo['Make']}</strong> quality issues<br>
+                    3. Benchmark <strong>{best_combo['Make']}</strong> practices<br>
+                    4. Increase sample sizes where <30 tests</div>""", unsafe_allow_html=True)
+            else:
+                st.info("Insufficient data for performance matrix analysis")
+        except Exception as e:
+            st.error(f"Performance matrix analysis error: {e}")
+with tab6:
+    st.header("📉 Trends & Statistical Process Control")
+    if "Test date time" in df.columns and df["Test date time"].notna().any():
+        try:
+            monthly = known_results.copy()
+            monthly["YearMonth"] = monthly["Test date time"].dt.to_period("M")
+            ms = (
+                monthly.groupby("YearMonth")
+                .agg(Total_Tests=("Is_Failure", "count"),
+                     Total_Failures=("Is_Failure", "sum"),
+                     Failure_Rate=("Is_Failure", "mean"))
+                .reset_index()
+            )
+            ms["Date"] = ms["YearMonth"].dt.to_timestamp()
+            if len(ms) > 1:
+                ms["Failure_Rate_Pct"] = ms["Failure_Rate"] * 100.0
+                c1, c2 = st.columns(2)
+                with c1:
+                    fig_trend = px.line(ms, x="Date", y="Failure_Rate_Pct",
+                                        title="Monthly Failure Rate Trend",
+                                        markers=True, labels={"Failure_Rate_Pct": "Failure Rate (%)"})
+                    if len(ms) > 3:
+                        x_idx = np.arange(len(ms))
+                        z = np.polyfit(x_idx, ms["Failure_Rate_Pct"].values, 1)
+                        p = np.poly1d(z)
+                        fig_trend.add_trace(
+                            go.Scatter(x=ms["Date"], y=p(x_idx), mode="lines",
+                                       name="Trend", line=dict(dash="dash"))
+                        )
+                        slope = z[0]
+                        direction = "Improving" if slope < -0.1 else "Worsening" if slope > 0.1 else "Stable"
+                        st.markdown(
+                            f"""<div class="{'success-box' if direction=='Improving' else 'warning-box' if direction=='Worsening' else 'insight-box'}">
+                            <strong>📈 Trend:</strong> {direction} ({slope:.2f} pts/month)</div>""",
+                            unsafe_allow_html=True,
+                        )
+                    fig_trend.update_layout(**default_layout)
+                    st.plotly_chart(fig_trend, use_container_width=True)
+                with c2:
+                    fig_sample = px.bar(ms, x="Date", y="Total_Tests",
+                                        title="Monthly Test Volume",
+                                        labels={"Total_Tests": "Number of Tests"})
+                    fig_sample.update_layout(**default_layout)
+                    st.plotly_chart(fig_sample, use_container_width=True)
+                st.subheader("📉 Statistical Process Control Chart")
+                if len(ms) > 3:
+                    mean = ms["Failure_Rate_Pct"].mean()
+                    std = ms["Failure_Rate_Pct"].std(ddof=1) if len(ms) > 1 else 0.0
+                    ucl = mean + 3 * std
+                    lcl = max(0.0, mean - 3 * std)
+                    fig_ctrl = go.Figure()
+                    fig_ctrl.add_trace(go.Scatter(x=ms["Date"], y=ms["Failure_Rate_Pct"],
+                                                  mode="lines+markers", name="Failure Rate"))
+                    fig_ctrl.add_hline(y=mean, line_dash="dash", line_color="green", annotation_text="CL")
+                    fig_ctrl.add_hline(y=ucl, line_dash="dash", line_color="red", annotation_text="UCL")
+                    fig_ctrl.add_hline(y=lcl, line_dash="dash", line_color="red", annotation_text="LCL")
+                    ooc = ms[(ms["Failure_Rate_Pct"] > ucl) | (ms["Failure_Rate_Pct"] < lcl)]
+                    if not ooc.empty:
+                        fig_ctrl.add_trace(go.Scatter(x=ooc["Date"], y=ooc["Failure_Rate_Pct"],
+                                                      mode="markers", name="Out of Control",
+                                                      marker=dict(size=15, symbol="x", color="red")))
+                    fig_ctrl.update_layout(title="Control Chart — Monthly Failure Rate",
+                                           xaxis_title="Date", yaxis_title="Failure Rate (%)", **default_layout)
+                    st.plotly_chart(fig_ctrl, use_container_width=True)
+                    if not ooc.empty:
+                        st.markdown(
+                            f"""<div class="warning-box"><strong>🚨 Out-of-Control Points:</strong> {len(ooc)} month(s)<br>
+                            Dates: {', '.join(ooc['YearMonth'].astype(str).tolist())}</div>""",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown("""<div class="success-box"><strong>✅ Process in Control:</strong> No points beyond control limits.</div>""",
+                                    unsafe_allow_html=True)
+                else:
+                    st.info("Need >3 months for control chart")
+            else:
+                st.info("Need more than one month for trend analysis")
+        except Exception as e:
+            st.error(f"Trend/Control error: {e}")
+    else:
+        st.info("Date information not available for trend analysis")
+with tab7:
+    st.header("🧠 Advanced Analytics & AI Insights")
+    st.markdown("*Simple explanations of complex patterns in your damper data*")
+   
+    if len(known_results) < 30:
+        st.warning(f"⚠️ **Limited Data Alert**: You have {len(known_results)} valid test results. For reliable insights, we recommend at least 30 results. Current insights should be used cautiously.")
+   
+    # Section 1: Basic Statistics in Plain English
+    st.subheader("📊 What Your Data is Telling Us")
+   
+    col1, col2 = st.columns(2)
+   
+    with col1:
+        st.markdown("#### 🔍 Data Overview")
+        data_quality_pct = (len(known_results) / total_tests * 100.0) if total_tests else 0.0
+       
+        # Simple data quality explanation
+        if data_quality_pct > 95:
+            quality_msg = "**Excellent** - Almost all your test results are clear (Pass/Fail)"
+            quality_color = "success-box"
+        elif data_quality_pct > 85:
+            quality_msg = "**Good** - Most of your test results are clear"
+            quality_color = "success-box"
+        elif data_quality_pct > 70:
+            quality_msg = "**Fair** - Some test results are unclear or missing"
+            quality_color = "warning-box"
+        else:
+            quality_msg = "**Poor** - Many test results are unclear or missing"
+            quality_color = "error-box"
+           
+        st.markdown(f"""
+        <div class="{quality_color}">
+        <strong>📈 Data Quality Score: {data_quality_pct:.0f}%</strong><br>
+        {quality_msg}<br><br>
+        • Total tests conducted: <strong>{total_tests:,}</strong><br>
+        • Clear results (Pass/Fail): <strong>{len(known_results):,}</strong><br>
+        • Failure rate: <strong>{failure_rate:.1f}%</strong>
+        </div>""", unsafe_allow_html=True)
+   
+    with col2:
+        st.markdown("#### 🎯 Quick Assessment")
+       
+        # Simple failure rate assessment
+        if failure_rate < 10:
+            performance_msg = "**Excellent Performance** 🟢<br>Your dampers are performing very well"
+            perf_color = "success-box"
+        elif failure_rate < 20:
+            performance_msg = "**Good Performance** 🟡<br>Most dampers are working fine, some room for improvement"
+            perf_color = "success-box"
+        elif failure_rate < 30:
+            performance_msg = "**Fair Performance** 🟠<br>Notable failure rate - investigation recommended"
+            perf_color = "warning-box"
+        else:
+            performance_msg = "**Poor Performance** 🔴<br>High failure rate - immediate attention needed"
+            perf_color = "error-box"
+           
+        st.markdown(f"""
+        <div class="{perf_color}">
+        {performance_msg}<br><br>
+        • Out of 100 dampers tested, about <strong>{failure_rate:.0f}</strong> would fail<br>
+        • This means <strong>{100-failure_rate:.0f} out of 100</strong> work properly
+        </div>""", unsafe_allow_html=True)
+    # Section 2: Age Analysis in Plain English
+    if "Age_Years" in df.columns and df["Age_Years"].notna().any():
+        st.subheader("📅 How Age Affects Damper Performance")
+       
+        col1, col2 = st.columns(2)
+       
+        with col1:
+            # Age distribution chart with clear explanation
+            fig_age_simple = px.histogram(
+                known_results,
+                x="Age_Years",
+                color="Test Result",
+                title="Damper Age vs Performance",
+                labels={"Age_Years": "Age (Years)", "count": "Number of Dampers"},
+                nbins=15
+            )
+            fig_age_simple.update_layout(**default_layout)
+            st.plotly_chart(fig_age_simple, use_container_width=True)
+           
+        with col2:
+            # Age correlation explanation
+            if len(known_results) > 10:
+                age_fail_corr = known_results[["Age_Years", "Is_Failure"]].corr().iloc[0, 1]
+               
+                if age_fail_corr > 0.3:
+                    corr_explanation = f"""
+                    <div class="warning-box">
+                    <strong>🔍 Key Finding: Older Dampers Fail More Often</strong><br><br>
+                    • As dampers get older, they tend to fail more frequently<br>
+                    • Correlation strength: <strong>{"Strong" if age_fail_corr > 0.5 else "Moderate"}</strong><br>
+                    • Recommendation: Consider replacing dampers before they get too old<br>
+                    • Set up preventive maintenance schedules
+                    </div>"""
+                elif age_fail_corr < -0.3:
+                    corr_explanation = f"""
+                    <div class="insight-box">
+                    <strong>🔍 Interesting Finding: Newer Dampers Fail More</strong><br><br>
+                    • Surprisingly, newer dampers seem to fail more often<br>
+                    • This could indicate manufacturing issues or break-in problems<br>
+                    • Recommendation: Review quality control for new dampers
+                    </div>"""
+                else:
+                    corr_explanation = f"""
+                    <div class="insight-box">
+                    <strong>🔍 Finding: Age Doesn't Strongly Predict Failures</strong><br><br>
+                    • Damper age alone doesn't strongly predict when they'll fail<br>
+                    • Other factors (like manufacturer or type) may be more important<br>
+                    • This suggests good overall durability across different ages
+                    </div>"""
+               
+                st.markdown(corr_explanation, unsafe_allow_html=True)
+               
+                # Age statistics in simple terms
+                age_stats = known_results["Age_Years"].describe()
+                st.markdown(f"""
+                **📊 Age Summary:**
+                - Youngest damper tested: **{age_stats['min']:.1f} years**
+                - Oldest damper tested: **{age_stats['max']:.1f} years**
+                - Average age: **{age_stats['mean']:.1f} years**
+                - Most dampers are around **{age_stats['50%']:.1f} years** old
+                """)
+    # Section 3: Manufacturer Performance in Plain English
+    if "Make" in df.columns:
+        st.subheader("🏭 Which Manufacturers Perform Best?")
+       
+        # Calculate manufacturer performance
+        make_performance = (
+            known_results.groupby("Make")["Is_Failure"]
+            .agg(total_tests="count", failures="sum", failure_rate="mean")
+            .reset_index()
+        )
+        make_performance["failure_rate_pct"] = make_performance["failure_rate"] * 100
+        make_performance = make_performance[make_performance["total_tests"] >= 10] # Only include makes with sufficient data
+       
+        if not make_performance.empty:
+            make_performance = make_performance.sort_values("failure_rate_pct")
+           
+            col1, col2 = st.columns(2)
+           
+            with col1:
+                # Manufacturer performance chart
+                fig_make = px.bar(
+                    make_performance,
+                    x="failure_rate_pct",
+                    y="Make",
+                    orientation="h",
+                    title="Failure Rate by Manufacturer",
+                    labels={"failure_rate_pct": "Failure Rate (%)", "Make": "Manufacturer"},
+                    color="failure_rate_pct",
+                    color_continuous_scale="RdYlGn_r"
+                )
+                fig_make.update_layout(**default_layout, height=400)
+                st.plotly_chart(fig_make, use_container_width=True)
+               
+            with col2:
+                # Best and worst performers explanation
+                best_make = make_performance.iloc[0]
+                worst_make = make_performance.iloc[-1]
+               
+                st.markdown(f"""
+                <div class="success-box">
+                <strong>🏆 Best Performer: {best_make['Make']}</strong><br>
+                • Failure rate: <strong>{best_make['failure_rate_pct']:.1f}%</strong><br>
+                • Based on <strong>{best_make['total_tests']:,}</strong> tests<br>
+                • Meaning: Very reliable, few failures
+                </div>
+               
+                <div class="error-box">
+                <strong>⚠️ Needs Improvement: {worst_make['Make']}</strong><br>
+                • Failure rate: <strong>{worst_make['failure_rate_pct']:.1f}%</strong><br>
+                • Based on <strong>{worst_make['total_tests']:,}</strong> tests<br>
+                • Meaning: More failures than others, needs attention
+                </div>""", unsafe_allow_html=True)
+               
+                # Performance gap explanation
+                gap = worst_make['failure_rate_pct'] - best_make['failure_rate_pct']
+                if gap > 10:
+                    st.markdown(f"""
+                    <div class="insight-box">
+                    <strong>💡 Key Insight:</strong><br>
+                    There's a <strong>{gap:.1f} percentage point</strong> difference between
+                    the best and worst manufacturers. This suggests manufacturer choice
+                    significantly impacts damper reliability.
+                    </div>""", unsafe_allow_html=True)
+    # Section 4: Time Trends in Plain English
+    if "Test date time" in df.columns and df["Test date time"].notna().any():
+        st.subheader("📈 Are Things Getting Better or Worse Over Time?")
+       
+        # Monthly trend analysis
+        monthly_data = known_results.copy()
+        monthly_data["YearMonth"] = monthly_data["Test date time"].dt.to_period("M")
+        monthly_summary = (
+            monthly_data.groupby("YearMonth")["Is_Failure"]
+            .agg(total_tests="count", failures="sum", failure_rate="mean")
+            .reset_index()
+        )
+        monthly_summary["Date"] = monthly_summary["YearMonth"].dt.to_timestamp()
+        monthly_summary["failure_rate_pct"] = monthly_summary["failure_rate"] * 100
+       
+        if len(monthly_summary) > 2:
+            col1, col2 = st.columns(2)
+           
+            with col1:
+                # Trend chart
+                fig_trend = px.line(
+                    monthly_summary,
+                    x="Date",
+                    y="failure_rate_pct",
+                    title="Monthly Failure Rate Trend",
+                    labels={"failure_rate_pct": "Failure Rate (%)", "Date": "Month"},
+                    markers=True
+                )
+               
+                # Add trend line if enough data
+                if len(monthly_summary) >= 3:
+                    z = np.polyfit(range(len(monthly_summary)), monthly_summary["failure_rate_pct"], 1)
+                    trend_line = np.polyval(z, range(len(monthly_summary)))
+                    fig_trend.add_trace(
+                        go.Scatter(
+                            x=monthly_summary["Date"],
+                            y=trend_line,
+                            mode="lines",
+                            name="Trend",
+                            line=dict(dash="dash", color="red")
+                        )
+                    )
+                   
+                fig_trend.update_layout(**default_layout)
+                st.plotly_chart(fig_trend, use_container_width=True)
+               
+            with col2:
+                # Trend explanation
+                if len(monthly_summary) >= 3:
+                    # Calculate trend
+                    first_3_avg = monthly_summary.head(3)["failure_rate_pct"].mean()
+                    last_3_avg = monthly_summary.tail(3)["failure_rate_pct"].mean()
+                    trend_change = last_3_avg - first_3_avg
+                   
+                    if trend_change > 2:
+                        trend_msg = f"""
+                        <div class="error-box">
+                        <strong>📈 Worsening Trend</strong><br>
+                        • Failure rate is <strong>increasing</strong> over time<br>
+                        • Recent months show <strong>{trend_change:.1f}%</strong> higher failure rate<br>
+                        • <strong>Action needed:</strong> Investigate what changed recently
+                        </div>"""
+                    elif trend_change < -2:
+                        trend_msg = f"""
+                        <div class="success-box">
+                        <strong>📉 Improving Trend</strong><br>
+                        • Failure rate is <strong>decreasing</strong> over time<br>
+                        • Recent months show <strong>{abs(trend_change):.1f}%</strong> lower failure rate<br>
+                        • <strong>Good news:</strong> Whatever you're doing is working!
+                        </div>"""
+                    else:
+                        trend_msg = f"""
+                        <div class="insight-box">
+                        <strong>📊 Stable Trend</strong><br>
+                        • Failure rate is <strong>relatively stable</strong> over time<br>
+                        • No major changes in recent months<br>
+                        • <strong>Status:</strong> Consistent performance
+                        </div>"""
+                   
+                    st.markdown(trend_msg, unsafe_allow_html=True)
+                   
+                    # Monthly summary
+                    st.markdown(f"""
+                    **📅 Monthly Summary:**
+                    - Best month: **{monthly_summary.loc[monthly_summary['failure_rate_pct'].idxmin(), 'YearMonth']}** ({monthly_summary['failure_rate_pct'].min():.1f}% failures)
+                    - Worst month: **{monthly_summary.loc[monthly_summary['failure_rate_pct'].idxmax(), 'YearMonth']}** ({monthly_summary['failure_rate_pct'].max():.1f}% failures)
+                    - Average tests per month: **{monthly_summary['total_tests'].mean():.0f}**
+                    """)
+    # Section 5: Predictive Model Explanation (Simplified)
+    if len(known_results) >= 50:
+        st.subheader("🤖 Can We Predict Which Dampers Will Fail?")
+       
+        try:
+            # Build simple prediction model
+            features_for_prediction = []
+            if "Age_Years" in df.columns:
+                features_for_prediction.append("Age_Years")
+            if "Make" in df.columns:
+                features_for_prediction.extend(pd.get_dummies(df["Make"], prefix="Make").columns.tolist())
+           
+            if features_for_prediction and "Age_Years" in df.columns:
+                # Simple model with just age
+                X_simple = df[["Age_Years"]].fillna(df["Age_Years"].mean())
+                y = (df["Test Result"] == "FAIL").astype(int)
+               
+                if 0 < y.sum() < len(y):
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X_simple, y, test_size=0.3, random_state=42, stratify=y
+                    )
+                   
+                    model = LogisticRegression(random_state=42)
+                    model.fit(X_train, y_train)
+                    y_pred = model.predict(X_test)
+                   
+                    # Calculate accuracy
+                    from sklearn.metrics import accuracy_score, precision_score, recall_score
+                    accuracy = accuracy_score(y_test, y_pred)
+                    precision = precision_score(y_test, y_pred, zero_division=0)
+                    recall = recall_score(y_test, y_pred, zero_division=0)
+                   
+                    col1, col2 = st.columns(2)
+                   
+                    with col1:
+                        # Model performance explanation
+                        if accuracy > 0.8:
+                            model_quality = "**Excellent** 🟢 - Very reliable predictions"
+                            model_color = "success-box"
+                        elif accuracy > 0.7:
+                            model_quality = "**Good** 🟡 - Fairly reliable predictions"
+                            model_color = "success-box"
+                        elif accuracy > 0.6:
+                            model_quality = "**Fair** 🟠 - Somewhat reliable predictions"
+                            model_color = "warning-box"
+                        else:
+                            model_quality = "**Poor** 🔴 - Not very reliable predictions"
+                            model_color = "error-box"
+                       
+                        st.markdown(f"""
+                        <div class="{model_color}">
+                        <strong>🎯 Prediction Model Quality</strong><br>
+                        {model_quality}<br><br>
+                        <strong>In simple terms:</strong><br>
+                        • Out of 100 predictions, about <strong>{accuracy*100:.0f}</strong> are correct<br>
+                        • When we predict a damper will fail, we're right <strong>{precision*100:.0f}%</strong> of the time<br>
+                        • We catch <strong>{recall*100:.0f}%</strong> of actual failures
+                        </div>""", unsafe_allow_html=True)
+                   
+                    with col2:
+                        # Age-based risk explanation
+                        age_ranges = [(0, 2, "New (0-2 years)"), (2, 4, "Medium (2-4 years)"),
+                                     (4, 10, "Old (4+ years)")]
+                       
+                        risk_explanation = "<div class='insight-box'><strong>🔍 Age-Based Risk Levels:</strong><br><br>"
+                       
+                        for min_age, max_age, label in age_ranges:
+                            mask = (df["Age_Years"] >= min_age) & (df["Age_Years"] < max_age) if max_age < 10 else (df["Age_Years"] >= min_age)
+                            if mask.sum() > 0:
+                                risk_rate = df[mask]["Is_Failure"].mean() * 100
+                                if risk_rate > 25:
+                                    risk_icon = "🔴 High Risk"
+                                elif risk_rate > 15:
+                                    risk_icon = "🟠 Medium Risk"
+                                else:
+                                    risk_icon = "🟢 Low Risk"
+                               
+                                risk_explanation += f"• {label}: {risk_icon} ({risk_rate:.0f}% fail)<br>"
+                       
+                        risk_explanation += "</div>"
+                        st.markdown(risk_explanation, unsafe_allow_html=True)
+       
+        except Exception as e:
+            st.info("Prediction model couldn't be built with current data structure.")
+   
+    else:
+        st.info(f"**Prediction Model:** Need at least 50 test results to build a reliable prediction model. You currently have {len(known_results)} results.")
+    # Section 6: Practical Recommendations
+    st.subheader("🎯 What Should You Do? (Practical Recommendations)")
+   
+    recommendations = []
+   
+    # Data quality recommendations
+    if data_quality_pct < 90:
+        recommendations.append({
+            "icon": "📋",
+            "title": "Improve Data Quality",
+            "description": f"You have {100-data_quality_pct:.0f}% unclear test results. Make sure all tests are recorded as either 'PASS' or 'FAIL' to get better insights.",
+            "priority": "High"
+        })
+   
+    # Failure rate recommendations
+    if failure_rate > 20:
+        recommendations.append({
+            "icon": "🔧",
+            "title": "Address High Failure Rate",
+            "description": f"Your {failure_rate:.0f}% failure rate is concerning. Focus on the worst-performing manufacturers and oldest dampers first.",
+            "priority": "High"
+        })
+   
+    # Age-based recommendations
+    if "Age_Years" in df.columns:
+        old_dampers = df[df["Age_Years"] > 5]
+        if len(old_dampers) > 0 and old_dampers["Is_Failure"].mean() > 0.3:
+            recommendations.append({
+                "icon": "⏰",
+                "title": "Replace Old Dampers",
+                "description": f"Dampers over 5 years old have a {old_dampers['Is_Failure'].mean()*100:.0f}% failure rate. Consider proactive replacement.",
+                "priority": "Medium"
+            })
+   
+    # Manufacturer recommendations
+    if "Make" in df.columns and not make_performance.empty:
+        if worst_make['failure_rate_pct'] > 25:
+            recommendations.append({
+                "icon": "🏭",
+                "title": f"Review {worst_make['Make']} Dampers",
+                "description": f"{worst_make['Make']} has a {worst_make['failure_rate_pct']:.0f}% failure rate. Consider switching suppliers or investigating quality issues.",
+                "priority": "Medium"
+            })
+   
+    # Sample size recommendations
+    if len(known_results) < 100:
+        recommendations.append({
+            "icon": "📊",
+            "title": "Collect More Data",
+            "description": f"With {len(known_results)} test results, increase testing to get more reliable insights. Aim for at least 100 results.",
+            "priority": "Low"
+        })
+   
+    # Display recommendations
+    if recommendations:
+        for i, rec in enumerate(recommendations, 1):
+            priority_color = {"High": "error-box", "Medium": "warning-box", "Low": "insight-box"}[rec["priority"]]
+            st.markdown(f"""
+            <div class="{priority_color}">
+            <strong>{rec['icon']} {i}. {rec['title']} ({rec['priority']} Priority)</strong><br>
+            {rec['description']}
+            </div>""", unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="success-box">
+        <strong>🎉 Great Job!</strong><br>
+        Your damper performance looks good overall. Keep monitoring and maintain current quality standards.
+        </div>""", unsafe_allow_html=True)
+   
+    # Final summary
+    st.markdown("---")
+    st.subheader("📋 Executive Summary")
+   
+    summary_points = []
+    summary_points.append(f"• **Data Quality:** {data_quality_pct:.0f}% of tests have clear results")
+    summary_points.append(f"• **Overall Performance:** {failure_rate:.1f}% failure rate ({100-failure_rate:.0f}% success rate)")
+   
+    if "Make" in df.columns and not make_performance.empty:
+        summary_points.append(f"• **Best Manufacturer:** {best_make['Make']} ({best_make['failure_rate_pct']:.1f}% failures)")
+        summary_points.append(f"• **Needs Attention:** {worst_make['Make']} ({worst_make['failure_rate_pct']:.1f}% failures)")
+   
+    if "Age_Years" in df.columns:
+        avg_age = df["Age_Years"].mean()
+        summary_points.append(f"• **Average Damper Age:** {avg_age:.1f} years")
+       
+        if age_fail_corr > 0.3:
+            summary_points.append(f"• **Key Finding:** Older dampers fail more often - consider preventive replacement")
+        elif age_fail_corr < -0.3:
+            summary_points.append(f"• **Key Finding:** Newer dampers fail more often - check manufacturing quality")
+        else:
+            summary_points.append(f"• **Key Finding:** Age doesn't strongly predict failures - other factors more important")
+   
+    st.markdown("\n".join(summary_points))
+   
+    # Confidence level
+    if len(known_results) > 100:
+        confidence_msg = "**High Confidence** 🟢 - These insights are reliable"
+    elif len(known_results) > 50:
+        confidence_msg = "**Medium Confidence** 🟡 - These insights are fairly reliable"
+    else:
+        confidence_msg = "**Low Confidence** 🔴 - More data needed for reliable insights"
+   
+    st.markdown(f"""
+    <div class="insight-box">
+    <strong>📊 Analysis Confidence Level:</strong> {confidence_msg}<br>
+    Based on {len(known_results):,} valid test results from {total_tests:,} total records
+    </div>""", unsafe_allow_html=True)
+with tab8:
+    st.header("📊 Pareto Analysis")
+    st.markdown("*Pareto charts showing which categories contribute most to failures, failure percentages, and test volume*")
+    if known_results.empty:
+        st.warning("⚠️ No valid PASS/FAIL data available for Pareto analysis")
+    elif failures == 0:
+        st.warning("⚠️ No failure data available for failure Pareto charts")
+    else:
+        pareto_columns = [("Make", "Manufacturer"), ("TYPE OF DAMPER", "Damper Type")]
+        if "Age_Category" in df.columns:
+            pareto_columns.append(("Age_Category", "Age Category"))
+       
+        # Failure Count Pareto Charts
+        st.subheader("🔴 Failure Count Contribution Analysis")
+        st.markdown("These charts show which categories contribute most to the number of failures (80% line indicates where most issues originate).")
+        for col, title in pareto_columns:
+            if col in df.columns:
+                try:
+                    fig_pareto, pareto_data = analytics.generate_pareto_chart(col, title_prefix=f"{title} ")
+                    if fig_pareto is not None and not pareto_data.empty:
+                        st.markdown(f"**{title} Failure Count Pareto**")
+                        st.plotly_chart(fig_pareto, use_container_width=True)
+                        with st.expander(f"📋 {title} Failure Count Pareto Data"):
+                            st.dataframe(
+                                pareto_data.style.format({
+                                    'Percentage': '{:.1f}%',
+                                    'Cumulative_Percentage': '{:.1f}%'
+                                }),
+                                use_container_width=True
+                            )
+                    else:
+                        st.info(f"No failure data available for {title} Failure Count Pareto analysis")
+                except Exception as e:
+                    st.error(f"Pareto analysis error for {title} (Failure Count): {e}")
+        # Failure Percentage Pareto Charts
+        st.subheader("🟣 Failure Percentage Contribution Analysis")
+        st.markdown("These charts show the percentage contribution of each category to total failures (80% line indicates where most failure proportions originate).")
+        for col, title in pareto_columns:
+            if col in df.columns:
+                try:
+                    fig_pct, pct_data = analytics.generate_failure_percentage_pareto_chart(col, title_prefix=f"{title} ")
+                    if fig_pct is not None and not pct_data.empty:
+                        st.markdown(f"**{title} Failure Percentage Pareto**")
+                        st.plotly_chart(fig_pct, use_container_width=True)
+                        with st.expander(f"📋 {title} Failure Percentage Pareto Data"):
+                            st.dataframe(
+                                pct_data.style.format({
+                                    'Percentage': '{:.1f}%',
+                                    'Cumulative_Percentage': '{:.1f}%'
+                                }),
+                                use_container_width=True
+                            )
+                    else:
+                        st.info(f"No failure data available for {title} Failure Percentage Pareto analysis")
+                except Exception as e:
+                    st.error(f"Pareto analysis error for {title} (Failure Percentage): {e}")
+        # Volume Pareto Charts
+        st.subheader("🔵 Test Volume Contribution Analysis")
+        st.markdown("These charts show which categories contribute most to total tests conducted.")
+        for col, title in pareto_columns:
+            if col in df.columns:
+                try:
+                    fig_volume, volume_data = analytics.generate_volume_pareto_chart(col, title_prefix=f"{title} ")
+                    if fig_volume is not None and not volume_data.empty:
+                        st.markdown(f"**{title} Volume Pareto**")
+                        st.plotly_chart(fig_volume, use_container_width=True)
+                        with st.expander(f"📋 {title} Volume Pareto Data"):
+                            st.dataframe(
+                                volume_data.style.format({
+                                    'Percentage': '{:.1f}%',
+                                    'Cumulative_Percentage': '{:.1f}%'
+                                }),
+                                use_container_width=True
+                            )
+                    else:
+                        st.info(f"No test volume data available for {title} Pareto analysis")
+                except Exception as e:
+                    st.error(f"Pareto analysis error for {title} (Volume): {e}")
+# -----------------------------------
+# Enhanced Export Options (Sidebar)
+# -----------------------------------
+# -----------------------------------
+# Enhanced Export Options (Sidebar)
+# -----------------------------------
+with st.sidebar.expander("📥 Enhanced Export Options"):
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    csv_main = df.to_csv(index=False).encode('utf-8-sig') # Avoid odd characters in Excel
+    st.download_button(
+        label="📊 Download Filtered Dataset (CSV)",
+        data=csv_main,
+        file_name=f"enhanced_damper_analysis_{sheet_choice}_{timestamp}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+    # Sample size analysis exports
+    if not known_results.empty:
+        for col in ["Make", "TYPE OF DAMPER", "Age_Category"]:
+            if col in df.columns:
+                try:
+                    _, sample_data = analytics.generate_sample_size_analysis(col)
+                    if not sample_data.empty:
+                        st.download_button(
+                            label=f"📈 Sample Size Analysis — {col} (CSV)",
+                            data=sample_data.to_csv(index=False).encode('utf-8-sig'),
+                            file_name=f"sample_analysis_{col}_{timestamp}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                        )
+                except Exception:
+                    pass
+        # Performance matrix export
+        try:
+            _, perf_matrix = analytics.generate_performance_vs_age_make_analysis()
+            if not perf_matrix.empty:
+                st.download_button(
+                    label="🔥 Performance Matrix Data (CSV)",
+                    data=perf_matrix.to_csv(index=False).encode('utf-8-sig'),
+                    file_name=f"performance_matrix_{timestamp}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+        except Exception:
+            pass
+        # Pareto analysis exports
+        for col in ["Make", "TYPE OF DAMPER", "Age_Category"]:
+            if col in df.columns:
+                try:
+                    # Failure Count Pareto
+                    _, pareto_data = analytics.generate_pareto_chart(col)
+                    if not pareto_data.empty:
+                        st.download_button(
+                            label=f"📊 Pareto Failure Count Analysis — {col} (CSV)",
+                            data=pareto_data.to_csv(index=False).encode('utf-8-sig'),
+                            file_name=f"pareto_failure_count_{col}_{timestamp}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                        )
+                    # Failure Percentage Pareto
+                    _, pct_data = analytics.generate_failure_percentage_pareto_chart(col)
+                    if not pct_data.empty:
+                        st.download_button(
+                            label=f"📊 Pareto Failure Percentage Analysis — {col} (CSV)",
+                            data=pct_data.to_csv(index=False).encode('utf-8-sig'),
+                            file_name=f"pareto_failure_pct_{col}_{timestamp}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                        )
+                    # Volume Pareto
+                    _, volume_data = analytics.generate_volume_pareto_chart(col)
+                    if not volume_data.empty:
+                        st.download_button(
+                            label=f"📊 Pareto Volume Analysis — {col} (CSV)",
+                            data=volume_data.to_csv(index=False).encode('utf-8-sig'),
+                            file_name=f"pareto_volume_{col}_{timestamp}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                        )
+                except Exception:
+                    pass
+# -----------------------------------
+# Footer
+# -----------------------------------
+st.markdown("---")
+st.subheader("📊 Enhanced Dashboard Status & Analytics Summary")
+f1, f2, f3, f4, f5 = st.columns(5)
+with f1:
+    known_pct = (len(known_results) / total_tests * 100.0) if total_tests else 0.0
+    badge = "🟢 Excellent" if known_pct > 95 else "🟡 Good" if known_pct > 85 else "🟠 Fair" if known_pct > 70 else "🔴 Poor"
+    st.markdown(f"**📊 Data Quality**\n\n{badge}\n({known_pct:.1f}%)")
+with f2:
+    conf = "🟢 High" if len(known_results) > 100 else "🟡 Medium" if len(known_results) > 50 else "🟠 Low" if len(known_results) > 20 else "🔴 Very Low"
+    st.markdown(f"**🎯 Confidence Level**\n\n{conf}\n(n={len(known_results)})")
+with f3:
+    sys = "🟢 Online" if analytics.connection_status and "Connected successfully" in analytics.connection_status else "🔴 Issues"
+    st.markdown(f"**🔄 System Status**\n\n{sys}")
+with f4:
+    analytics_features = 8 # Updated for Pareto
+    st.markdown(f"**🧠 Analytics Features**\n\n🟢 Active\n({analytics_features} modules)")
+with f5:
+    st.markdown("**⏱ Last Updated**\n\n" + (analytics.last_update.strftime("%H:%M:%S") if analytics.last_update else "Not updated"))
+with st.expander("🔧 Enhanced Troubleshooting & Feature Guide"):
+    st.markdown(
+        """
+## 🆕 Key Enhancements
+- Bigger performance heatmap (height 700)
+- Drill‑down across **Make, Age, Type** + **CSV/XLSX** downloads
+- CSVs saved with **UTF‑8‑SIG** to avoid unknown characters in Excel
+- Performance matrix, SPC, Pareto, predictive, anomalies
+- New **Pareto Analysis Tab** for failure and volume contributions by Make, Type, and Age
+## Tips
+- Keep ≥30 samples per category for stable insights
+- Use date and sidebar filters to narrow analysis
+- If you update Google Sheet rows, use **Refresh Data**
+"""
+    )
+st.markdown(
+    f"""
+<div style='text-align:center;color:gray;margin-top:2rem;padding:1rem;border-top:1px solid #eee;'>
+🚀 <strong>Enhanced Damper Analytics Platform v4.1</strong><br>
+<em>Sample Size • Drill‑Down • Performance Matrix • SPC • AI Insights • Pareto Analysis</em><br>
+Built with Streamlit & Plotly<br>
+<small>Processed {total_tests:,} records • {len(known_results):,} valid tests • {datetime.now().strftime('%Y-%m-%d %H:%M')}</small>
+</div>
+""",
+    unsafe_allow_html=True,
+)
