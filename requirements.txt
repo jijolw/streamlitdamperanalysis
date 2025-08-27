@@ -1,0 +1,10 @@
+streamlit
+plotly
+gspread
+google-auth
+pandas
+numpy
+scipy
+scikit-learn
+openpyxl
+xlsxwriter
