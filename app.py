@@ -51,12 +51,11 @@ def validate_environment():
     if "gcp_service_account" not in st.secrets:
         issues.append("'gcp_service_account' secret not found in Streamlit Cloud secrets")
     
-    # Check Google Sheet key in secrets
-    if "google_sheet_key" not in st.secrets:
-        issues.append("'google_sheet_key' secret not found in Streamlit Cloud secrets")
+    # Check Google Sheet key in secrets - FIXED: using consistent case
+    if "GOOGLE_SHEET_KEY" not in st.secrets:
+        issues.append("'GOOGLE_SHEET_KEY' secret not found in Streamlit Cloud secrets")
     
     return issues
-
 def validate_data_quality(df):
     """Generate a data quality report"""
     if df.empty:
@@ -154,7 +153,8 @@ def _get_creds_and_client():
     try:
         # Get credentials from Streamlit secrets
         service_account_info = st.secrets["gcp_service_account"]
-        sheet_key = st.secrets["google_sheet_key"]
+        # FIXED: using consistent case for sheet key
+        sheet_key = st.secrets["GOOGLE_SHEET_KEY"]
         
         # Convert to dictionary if it's not already
         if isinstance(service_account_info, str):
@@ -170,9 +170,29 @@ def _get_creds_and_client():
         
         return creds, client, sheet_key
         
+    except KeyError as e:
+        raise RuntimeError(f"Missing secret in Streamlit Cloud: {e}")
     except Exception as e:
         raise RuntimeError(f"Failed to get credentials from Streamlit secrets: {e}")
 
+def debug_secrets():
+    """Debug function to check what secrets are available"""
+    st.write("Available secrets:")
+    try:
+        for key in st.secrets.keys():
+            st.write(f"- {key}")
+        
+        # Check if the Google Sheet key exists with different cases
+        possible_keys = ["GOOGLE_SHEET_KEY", "google_sheet_key", "Google_Sheet_Key"]
+        for key in possible_keys:
+            if key in st.secrets:
+                st.write(f"✅ Found Google Sheet key as: {key}")
+                break
+        else:
+            st.write("❌ Google Sheet key not found with any common naming")
+            
+    except Exception as e:
+        st.write(f"Error checking secrets: {e}")
 def test_google_sheets_connection():
     """Test Google Sheets connection and return status and sheet list."""
     try:
