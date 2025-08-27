@@ -50,19 +50,20 @@ def validate_environment():
     
     # Try Streamlit Cloud first
     try:
-        if hasattr(st, 'secrets') and 'google_credentials' in st.secrets:
-            google_credentials = st.secrets["google_credentials"]
-            sheet_key = st.secrets.get("GOOGLE_SHEET_KEY")
-            
-            if not google_credentials:
+        if hasattr(st, 'secrets'):
+            # Check google credentials
+            if 'google_credentials' not in st.secrets:
                 issues.append("Google credentials not found in Streamlit secrets")
-            if not sheet_key:
+            
+            # Check sheet key at root level
+            if 'GOOGLE_SHEET_KEY' not in st.secrets:
                 issues.append("GOOGLE_SHEET_KEY not found in Streamlit secrets")
             
             return issues  # Return early if using Streamlit secrets
-    except:
+    except Exception as e:
         pass  # Fall through to local method
     
+    # Local PC method continues...    
     # Local PC method
     credentials_path = "credentials.json"  # Hardcoded since you have this file
     if not os.path.exists(credentials_path):
